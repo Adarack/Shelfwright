@@ -55,3 +55,7 @@ The web UI listens on port 8484.
 - Files are moved, never deleted: removed duplicates go to `/data/trash`.
 - Every folder move writes an undo log to `/data/logs`; Chaptarr tables are dumped before they are changed.
 - Audiobookshelf items are never hard-deleted.
+
+## License
+
+MIT, see [LICENSE](LICENSE).

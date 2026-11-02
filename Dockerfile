@@ -2,7 +2,8 @@
 FROM postgres:18-alpine
 LABEL org.opencontainers.image.source="https://github.com/Adarack/Shelfwright" \
       org.opencontainers.image.description="Audiobook library upkeep for Audiobookshelf (and optionally Chaptarr)" \
-      org.opencontainers.image.title="Shelfwright"
+      org.opencontainers.image.title="Shelfwright" \
+      org.opencontainers.image.licenses="MIT"
 RUN apk add --no-cache python3 py3-mutagen tzdata
 WORKDIR /app
 COPY app/ /app/
