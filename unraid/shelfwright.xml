@@ -1,0 +1,42 @@
+<?xml version="1.0"?>
+<Container version="2">
+  <Name>Shelfwright</Name>
+  <Repository>ghcr.io/adarack/shelfwright:latest</Repository>
+  <Registry/>
+  <Network>bridge</Network>
+  <MyIP/>
+  <Shell>sh</Shell>
+  <Privileged>false</Privileged>
+  <Support>https://github.com/Adarack/Shelfwright/issues</Support>
+  <Project>https://github.com/Adarack/Shelfwright</Project>
+  <Overview>Audiobook library upkeep: finds problems in your audiobook library, Audiobookshelf and (optionally) Chaptarr and proposes fixes. You approve them in the web UI. Safe fixes (tag sync, dramatized formatting, Chaptarr author folders, empty folders) can run on their own. Also converts multi-file and MP3 books to m4b with Audiobookshelf's own encoder.</Overview>
+  <Category>Tools: MediaApp:Books</Category>
+  <WebUI>http://[IP]:[PORT:8484]/</WebUI>
+  <Icon>https://raw.githubusercontent.com/advplyr/audiobookshelf/master/client/static/icon.svg</Icon>
+  <ExtraParams>--restart=unless-stopped</ExtraParams>
+  <PostArgs/>
+  <DonateText/>
+  <DonateLink/>
+  <Requires>Audiobookshelf. Chaptarr is optional.</Requires>
+  <Config Name="WebUI" Target="8484" Default="3093" Mode="tcp" Description="Web UI" Type="Port" Display="always" Required="true" Mask="false">3093</Config>
+  <Config Name="Library" Target="/library" Default="/mnt/user/audiobooks" Mode="rw" Description="The audiobook library (the same folder ABS uses for its library)" Type="Path" Display="always" Required="true" Mask="false">/mnt/user/audiobooks</Config>
+  <Config Name="ABS config (read-only)" Target="/abs-config" Default="/mnt/user/appdata/audiobookshelf" Mode="ro" Description="Holds absdatabase.sqlite. It is copied before reading, never opened live." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/audiobookshelf</Config>
+  <Config Name="ABS metadata" Target="/abs-metadata" Default="/mnt/user/appdata/audiobookshelf/metadata" Mode="rw" Description="Where ABS keeps the original tracks after an m4b encode (cache/items)" Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/audiobookshelf/metadata</Config>
+  <Config Name="Data" Target="/data" Default="/mnt/user/appdata/shelfwright" Mode="rw" Description="Findings database, logs, backups and trash" Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/shelfwright</Config>
+  <Config Name="ABS_URL" Target="ABS_URL" Default="http://audiobookshelf" Mode="" Description="Audiobookshelf URL" Type="Variable" Display="always" Required="true" Mask="false">http://audiobookshelf</Config>
+  <Config Name="ABS_TOKEN" Target="ABS_TOKEN" Default="" Mode="" Description="Audiobookshelf API key (an admin key)" Type="Variable" Display="always" Required="true" Mask="true"></Config>
+  <Config Name="ABS_LIBRARY_ID" Target="ABS_LIBRARY_ID" Default="" Mode="" Description="ABS library id (Settings → Libraries, or /api/libraries)" Type="Variable" Display="always" Required="true" Mask="false"></Config>
+  <Config Name="ABS_LIB_ROOT" Target="ABS_LIB_ROOT" Default="/audiobooks" Mode="" Description="The library folder as the Audiobookshelf container sees it" Type="Variable" Display="always" Required="true" Mask="false">/audiobooks</Config>
+  <Config Name="CHAPTARR_LIB_ROOT" Target="CHAPTARR_LIB_ROOT" Default="" Mode="" Description="The library folder as the Chaptarr container sees it (Chaptarr checks are off when empty)" Type="Variable" Display="always" Required="false" Mask="false"></Config>
+  <Config Name="CHAPTARR_URL" Target="CHAPTARR_URL" Default="" Mode="" Description="Chaptarr URL" Type="Variable" Display="always" Required="false" Mask="false"></Config>
+  <Config Name="CHAPTARR_KEY" Target="CHAPTARR_KEY" Default="" Mode="" Description="Chaptarr API key (config.xml ApiKey)" Type="Variable" Display="always" Required="false" Mask="true"></Config>
+  <Config Name="PG_HOST" Target="PG_HOST" Default="" Mode="" Description="Chaptarr's Postgres host" Type="Variable" Display="advanced" Required="false" Mask="false"></Config>
+  <Config Name="PG_USER" Target="PG_USER" Default="" Mode="" Description="Chaptarr's Postgres user" Type="Variable" Display="advanced" Required="false" Mask="false"></Config>
+  <Config Name="PG_PASSWORD" Target="PG_PASSWORD" Default="" Mode="" Description="Chaptarr's Postgres password (config.xml PostgresPassword). Empty = Chaptarr checks skipped." Type="Variable" Display="always" Required="false" Mask="true"></Config>
+  <Config Name="PG_DB" Target="PG_DB" Default="" Mode="" Description="Chaptarr's main database" Type="Variable" Display="advanced" Required="false" Mask="false"></Config>
+  <Config Name="AUTO_APPLY_SAFE" Target="AUTO_APPLY_SAFE" Default="false" Mode="" Description="true = safe fixes run on their own after each scan" Type="Variable" Display="always" Required="false" Mask="false">false</Config>
+  <Config Name="SCAN_INTERVAL_HOURS" Target="SCAN_INTERVAL_HOURS" Default="24" Mode="" Description="Hours between automatic scans" Type="Variable" Display="always" Required="false" Mask="false">24</Config>
+  <Config Name="CONVERT_MAX_BITRATE" Target="CONVERT_MAX_BITRATE" Default="128" Mode="" Description="Highest m4b bitrate in kbps (lower sources keep their bitrate)" Type="Variable" Display="advanced" Required="false" Mask="false">128</Config>
+  <Config Name="BACKUP_KEEP_DAYS" Target="BACKUP_KEEP_DAYS" Default="30" Mode="" Description="Days before the originals ABS kept after a conversion are offered for deletion" Type="Variable" Display="advanced" Required="false" Mask="false">30</Config>
+  <Config Name="TZ" Target="TZ" Default="Etc/UTC" Mode="" Description="Time zone" Type="Variable" Display="advanced" Required="false" Mask="false">Etc/UTC</Config>
+</Container>

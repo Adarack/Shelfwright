@@ -1,0 +1,4 @@
+{
+ "_comment": "Umbrella series filed before their sub-series. Example entry: {\"folder\": \"The Cosmere\", \"universe\": \"The Cosmere\", \"members\": [\"Mistborn\", \"The Stormlight Archive\"]}. Empty: folders use the first series in the tags.",
+ "universes": []
+}

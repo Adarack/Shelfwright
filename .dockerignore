@@ -1,0 +1,6 @@
+__pycache__
+*.pyc
+.git
+.github
+unraid
+README.md

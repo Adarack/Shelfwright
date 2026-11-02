@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+.env
+*.env
+my-*.xml
+data/
+*.sqlite
+*.db
+*.dump
+*.key
