@@ -58,7 +58,7 @@ def scan():
             "tag_sync": checks.check_tags(ctx, tag_rows), "drama": checks.check_drama(ctx), "abs_missing": checks.check_missing(ctx),
             "abs_double": checks.check_double_entries(ctx), "duplicate": checks.check_duplicates(ctx),
             "author": checks.check_author_variants(ctx), "series_variant": checks.check_series_variants(ctx), "title": checks.check_titles(ctx),
-            "naming": checks.check_naming(ctx, plan_rows), "empty_dirs": checks.check_empty_dirs(ctx), "convert": checks.check_conversion(ctx),
+            "naming": checks.check_naming(ctx, plan_rows, {os.path.dirname(r["file"])[len(config.ABS_LIB_ROOT) + 1:] for r in tag_rows if r["result"] == "would update"}), "empty_dirs": checks.check_empty_dirs(ctx), "convert": checks.check_conversion(ctx),
             "backup": checks.check_backups(ctx), "chaptarr": checks.check_chaptarr(ctx), "ch_links": checks.check_chaptarr_links(ctx),
         }
         seen = {}

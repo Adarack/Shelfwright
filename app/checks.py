@@ -110,7 +110,19 @@ def check_duplicates(ctx):
         s = it["series_list"][0] if it["series_list"] else {"name": "", "sequence": ""}
         part = re.search(r"\((?:part\s*)?\d+ of \d+\)", it["title"] or "", re.I)
         key[(norm(a), norm(DRAMA_RE.sub("", it["title"] or "")), s["sequence"], part.group(0) if part else "", "[Dramatized" in (it["title"] or ""))].append(it)
+    # the same ASIN is the same book too (parts of a split book share theirs, so the part number stays in the key)
+    for it in ctx.items:
+        if it["isMissing"] or not (it["asin"] or "").strip():
+            continue
+        part = re.search(r"\((?:part\s*)?\d+ of \d+\)", it["title"] or "", re.I)
+        key[("asin", it["asin"].strip().upper(), part.group(0) if part else "")].append(it)
+    done = set()
     for k, its in key.items():
+        ids = frozenset(i["id"] for i in its)
+        if len(ids) < 2 or ids in done:
+            continue
+        done.add(ids)
+        its = list({i["id"]: i for i in its}.values())
         if len(its) > 1:
             opts = [{"label": f"Keep {keep['relPath']}", "action": {"type": "abs_delete_files", "items": [o["id"] for o in its if o is not keep]}} for keep in its]
             yield F("duplicate", "|".join(sorted(i["id"] for i in its)), its[0]["title"], f"{len(its)} copies",
@@ -176,7 +188,11 @@ def check_tags(ctx, tag_report):
                 {"type": "tag_sync", "files": files}, safe=True)
 
 
-def check_naming(ctx, plan_rows):
+def check_naming(ctx, plan_rows, pending=()):
+    """pending: folders whose file tags still differ from ABS. Their planned names come from the stale tags,
+    so they are held back until the tag sync has run (the standardize fix syncs tags first anyway)."""
+    pending = set(pending)
+    plan_rows = [r for r in plan_rows if r["current"] not in pending]
     todo = [r for r in plan_rows if r["action"] in ("move", "rename")]
     for r in plan_rows:
         if r["action"] == "collision":
