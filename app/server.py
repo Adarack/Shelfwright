@@ -56,7 +56,7 @@ class H(BaseHTTPRequestHandler):
                 c = counts.setdefault(f["check"], {"open": 0, "applied": 0, "failed": 0, "rejected": 0, "queued": 0, "running": 0, "resolved": 0})
                 c[f["status"]] = c.get(f["status"], 0) + 1
             return self._send(200, {"checks": CHECKS, "counts": counts, "last_scan": store.kv_get("last_scan"),
-                                    "auto_apply_safe": config.AUTO_APPLY_SAFE, "jobs": store.jobs(15)})
+                                    "auto_apply_safe": config.AUTO_APPLY_SAFE, "version": config.VERSION, "jobs": store.jobs(15)})
         if path == "/api/findings":
             return self._send(200, store.findings(args.get("status") or None, args.get("check") or None))
         m = re.fullmatch(r"/api/jobs/(\d+)", path)
@@ -93,7 +93,7 @@ class H(BaseHTTPRequestHandler):
 def main():
     store.init()
     engine.start()
-    print(f"Shelfwright on :{config.PORT}", flush=True)
+    print(f"Shelfwright {config.VERSION} on :{config.PORT}", flush=True)
     ThreadingHTTPServer(("0.0.0.0", config.PORT), H).serve_forever()
 
 

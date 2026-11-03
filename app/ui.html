@@ -26,7 +26,7 @@ table{border-collapse:collapse;width:100%;margin-top:6px}td,th{border-bottom:1px
 .jobs .j{display:flex;gap:8px;padding:4px 0;border-bottom:1px solid var(--line);cursor:pointer;font-size:13px}
 .jobs .j span:first-child{flex:1;word-break:break-word}
 </style></head><body>
-<header><h1>Shelfwright</h1><span id="last" class="mute"></span><span style="flex:1"></span>
+<header><h1>Shelfwright <span id="ver" class="mute" style="font-size:12px;font-weight:400"></span></h1><span id="last" class="mute"></span><span style="flex:1"></span>
 <button id="scan" class="p">Scan now</button></header>
 <main><nav id="nav"></nav><section><div class="bar" id="bar"></div><div id="list"></div></section></main>
 <script>
@@ -38,6 +38,7 @@ const GROUPS=[["Audiobookshelf",["drama","title","author_variant","author_initia
  ["Files",["tag_sync","naming","collision","convert","backup","empty_dirs"]],["Chaptarr",["ch_stale","ch_unlinked","ch_author_path","ch_wrong_author","ch_wrong_title"]]];
 async function load(){
   const s=S.sum=await api("/api/summary");
+  $("#ver").textContent=s.version?"v"+s.version:"";
   $("#last").textContent="Last scan "+ago(s.last_scan)+(s.auto_apply_safe?" · safe fixes apply automatically":" · safe fixes wait for approval");
   let h=`<a data-c="" class="${S.check?"":"on"}">All open<span class="n">${Object.values(s.counts).reduce((a,c)=>a+(c.open||0)+(c.failed||0),0)}</span></a>`;
   for(const [g,cs] of GROUPS){h+=`<h3>${g}</h3>`;for(const c of cs){const n=(s.counts[c]?.open||0)+(s.counts[c]?.failed||0);

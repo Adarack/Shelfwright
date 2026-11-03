@@ -30,6 +30,7 @@ PG_DB = env("PG_DB", "")
 CHAPTARR_ENABLED = bool(PG_HOST and PG_USER and PG_PASSWORD and PG_DB and CHAPTARR_LIB_ROOT)
 
 # This app
+VERSION = env("APP_VERSION", "dev")
 DATA = env("DATA_DIR", "/data")
 PORT = int(env("PORT", "8484"))
 SCAN_INTERVAL_HOURS = float(env("SCAN_INTERVAL_HOURS", "24"))

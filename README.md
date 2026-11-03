@@ -56,6 +56,10 @@ The web UI listens on port 8484.
 - Every folder move writes an undo log to `/data/logs`; Chaptarr tables are dumped before they are changed.
 - Audiobookshelf items are never hard-deleted.
 
+## Versions
+
+The version is in [`VERSION`](VERSION). Every build of `main` publishes `ghcr.io/adarack/shelfwright:latest` and `:<version>`, and sets the image's `org.opencontainers.image.version` label (which Unraid shows). Raising `VERSION` also creates a GitHub release `v<version>`. Use `:latest` to follow updates, or pin a version.
+
 ## License
 
 MIT, see [LICENSE](LICENSE).
