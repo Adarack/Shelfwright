@@ -12,7 +12,7 @@ Audiobookshelf is treated as the source of truth: file tags, folder names and Ch
 |---|---|
 | Audiobookshelf | dramatized-adaptation formatting, titles with "(Unabridged)" or series positions, author and series spelling variants, author initials, duplicates, missing books, double entries |
 | Files | tags that differ from ABS, folders not following the naming standard (and collisions), books to convert to m4b, original tracks ABS kept after a conversion, empty folders |
-| Chaptarr (optional) | file records for deleted files, unlinked files, author folders, files linked to another author's book |
+| Chaptarr (optional) | file records for deleted files, unlinked files, author folders, files linked to another author's book, files linked to the wrong book by the same author |
 
 ## Folder naming
 

@@ -8,7 +8,7 @@ ACTIONS = {
     "tag_sync": actions.tag_sync, "abs_drama": actions.abs_drama, "abs_delete": actions.abs_delete,
     "abs_delete_many": actions.abs_delete_many, "abs_delete_files": actions.abs_delete_files, "abs_patch": actions.abs_patch,
     "abs_merge_author": actions.abs_merge_author, "abs_rename_author": actions.abs_rename_author, "abs_merge_series": actions.abs_merge_series,
-    "ch_remove_files": actions.ch_remove_files, "ch_author_path": actions.ch_author_path, "ch_relink_book": actions.ch_relink_book,
+    "ch_remove_files": actions.ch_remove_files, "ch_author_path": actions.ch_author_path, "ch_relink_book": actions.ch_relink_book, "ch_unlink_files": actions.ch_unlink_files,
     "standardize": actions.standardize_all, "remove_empty_dirs": actions.remove_empty_dirs, "delete_backup": actions.delete_backup,
     "convert": actions.convert,
 }
@@ -59,7 +59,7 @@ def scan():
             "abs_double": checks.check_double_entries(ctx), "duplicate": checks.check_duplicates(ctx),
             "author": checks.check_author_variants(ctx), "series_variant": checks.check_series_variants(ctx), "title": checks.check_titles(ctx),
             "naming": checks.check_naming(ctx, plan_rows, {os.path.dirname(r["file"])[len(config.ABS_LIB_ROOT) + 1:] for r in tag_rows if r["result"] == "would update"}), "empty_dirs": checks.check_empty_dirs(ctx), "convert": checks.check_conversion(ctx),
-            "backup": checks.check_backups(ctx), "chaptarr": checks.check_chaptarr(ctx), "ch_links": checks.check_chaptarr_links(ctx),
+            "backup": checks.check_backups(ctx), "chaptarr": checks.check_chaptarr(ctx), "ch_links": checks.check_chaptarr_links(ctx), "ch_titles": checks.check_chaptarr_titles(ctx),
         }
         seen = {}
         for name, gen in groups.items():

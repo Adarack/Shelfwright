@@ -325,3 +325,60 @@ def check_chaptarr_links(ctx):
         yield F("ch_wrong_author", f"{from_book}->{to_book}", book["title"], f"{len(ids)} file(s) linked to {wrong}'s book; ABS says {right}",
                 {"path": it["relPath"], "from_book": from_book, "to_book": to_book},
                 {"type": "choose", "options": [{"label": f"Link to {right}'s book (monitoring moves with it)", "action": {"type": "ch_relink_book", "files": ids, "book": to_book, "from_book": from_book}}]})
+
+
+def _title_variants(t):
+    """Normalized forms of a title: whole, and each part around ':' or ' - ', without bracketed bits or a dramatized marker."""
+    t = DRAMA_RE.sub("", t or "")
+    t = re.sub(r"\s*[\[(][^\])]*[\])]", "", t)
+    t = re.sub(r"\bversus\b", "vs", t, flags=re.I)
+    t = re.sub(r"(?<=[a-z])our\b", "or", t, flags=re.I)        # honour/honor, valour/valor
+    t = re.sub(r"(?<=[a-z])ll(?=er\b)", "l", t, flags=re.I)     # traveller/traveler
+    parts = [t] + re.split(r":| - ", t)
+    return [v for v in (norm(re.sub(r"^\s*(the|a|an)\s+", "", p.strip(), flags=re.I)) for p in parts) if len(v) >= 4]
+
+
+def _same_title(a, b):
+    va, vb = _title_variants(a), _title_variants(b)
+    if not va or not vb:
+        return True
+    return va[0] in vb or vb[0] in va or any(x == y or (len(x) >= 6 and len(y) >= 6 and (x in y or y in x)) for x in va for y in vb)
+
+
+def check_chaptarr_titles(ctx):
+    """Chaptarr file linked to another book by the same author (Chaptarr matches on title only). Reported only when
+    an audiobook entry with the book's exact title exists: other mismatches are mostly the same work under another
+    title (translations, UK/US titles, an adaptation of a book you also have)."""
+    if not ctx.ch:
+        return
+    ch = ctx.ch
+    lib = config.CHAPTARR_LIB_ROOT + "/"
+    by_file = {af["metadata"]["path"]: it for it in ctx.items for af in it["files"]}
+    by_author = collections.defaultdict(list)
+    for b in ch["books"].values():
+        by_author[b["author"]].append(b)
+    groups = collections.defaultdict(list)
+    for f in ch["files"]:
+        if not f["path"].startswith(lib) or not f["book"]:
+            continue
+        it = by_file.get(config.ABS_LIB_ROOT + "/" + f["path"][len(lib):])
+        book = ch["books"].get(f["book"])
+        if not it or not book or not it["authors"] or _same_title(it["title"], book["title"]):
+            continue
+        ch_author = ch["authors"].get(book["author"], {}).get("name", "")
+        if norm(ch_author) not in {norm(a["name"]) for a in it["authors"]}:
+            continue   # another author's book: check_chaptarr_links reports it
+        want = _title_variants(it["title"])
+        exact = [b for b in by_author[book["author"]] if b["id"] != book["id"] and b["id"] in ch["audio_books"]
+                 and want and (_title_variants(b["title"])[:1] == want[:1] or (_title_variants(b["title"]) or [""])[0] in want)]
+        exact.sort(key=lambda b: (b["monitored"] != "t", int(b["id"])))
+        if exact:
+            groups[(f["book"], it["id"], exact[0]["id"])].append(f["id"])
+    items = {i["id"]: i for i in ctx.items}
+    for (from_book, item_id, to_book), ids in groups.items():
+        it, book = items[item_id], ch["books"][from_book]
+        unlink = {"label": "Unlink (the right book isn't in Chaptarr)", "action": {"type": "ch_unlink_files", "files": ids}}
+        opts = [{"label": f"Link to “{ch['books'][to_book]['title']}”",
+                 "action": {"type": "ch_relink_book", "files": ids, "book": to_book, "from_book": from_book, "same_book": False}}, unlink]
+        yield F("ch_wrong_title", f"{from_book}:{item_id}", it["title"], f"{len(ids)} file(s) linked to Chaptarr's “{book['title']}”",
+                {"path": it["relPath"], "from_book": from_book, "to_book": to_book}, {"type": "choose", "options": opts})

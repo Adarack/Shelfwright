@@ -168,10 +168,18 @@ def ch_relink_book(a, log):
         # the wrong book's monitoring moves to the right one; the wrong one is unmonitored once it holds no audiobook files
         stmts.append(f'update "Books" set "AudiobookMonitored" = true where "Id" = {int(a["book"])} and '
                      f'(select "AudiobookMonitored" from "Books" where "Id" = {int(src)});')
-        stmts.append(f'update "Books" set "AudiobookMonitored" = false where "Id" = {int(src)} and not exists (select 1 from "BookFiles" bf '
-                     f'join "Editions" e on e."Id" = bf."EditionId" where e."BookId" = {int(src)} and bf."Path" like \'/books/Audiobooks/%\');')
+        if a.get("same_book", True):
+            # the wrong entry was the same book (e.g. under another author): unmonitor it so it isn't downloaded again.
+            # A different book stays as it was: it is simply missing now.
+            stmts.append(f'update "Books" set "AudiobookMonitored" = false where "Id" = {int(src)} and not exists (select 1 from "BookFiles" bf '
+                         f'join "Editions" e on e."Id" = bf."EditionId" where e."BookId" = {int(src)} and bf."Path" like {q(config.CHAPTARR_LIB_ROOT + "/%")});')
     pg.run(stmts)
     log(f"relinked {len(a['files'])} file(s) to Chaptarr book {a['book']} (edition {eds[0]['id']})" + (f", monitoring moved from book {src}" if src else ""))
+
+
+def ch_unlink_files(a, log):
+    Pg().run([f'update "BookFiles" set "EditionId" = 0 where "Id" in ({",".join(str(int(i)) for i in a["files"])});'])
+    log(f"unlinked {len(a['files'])} Chaptarr file record(s)")
 
 
 def chaptarr_update_paths(moves, log):

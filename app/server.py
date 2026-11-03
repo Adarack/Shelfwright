@@ -24,6 +24,7 @@ CHECKS = {
     "ch_unlinked": ("Chaptarr: unlinked", "Files not linked to a book"),
     "ch_author_path": ("Chaptarr: author folders", "Author folder isn't where the files are"),
     "ch_wrong_author": ("Chaptarr: wrong author", "File linked to another author's book"),
+    "ch_wrong_title": ("Chaptarr: wrong book", "File linked to another book by the same author"),
 }
 
 
