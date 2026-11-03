@@ -44,11 +44,12 @@ jobs:
         with:
           context: .
           platforms: linux/amd64
-          push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: APP_VERSION=${{ steps.version.outputs.version }}
-          # a plain image manifest (no attestation index) so Unraid's update check reads it
+          # Unraid's update check asks only for Docker v2 manifests/lists and OCI indexes, so push a plain
+          # Docker v2 manifest: Docker media types and no attestation index
+          outputs: type=image,push=${{ github.event_name != 'pull_request' }},oci-mediatypes=false
           provenance: false
           sbom: false
           cache-from: type=gha
