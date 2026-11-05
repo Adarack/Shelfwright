@@ -50,3 +50,17 @@ DRAMA = "[Dramatized Adaptation]"
 TAG = "Dramatized Adaptation"
 # Publishers whose audiobooks are always dramatized productions
 DRAMA_PUBLISHERS = env("DRAMA_PUBLISHERS", r"graphic\s*audio|soundbooth")
+
+
+def problems():
+    """Settings that are missing or half set, shown in the UI."""
+    out = []
+    if not ABS_TOKEN:
+        out.append("ABS_TOKEN is empty: fixes and conversions can't reach Audiobookshelf.")
+    if not ABS_LIBRARY_ID:
+        out.append("ABS_LIBRARY_ID is empty.")
+    pg = {"PG_HOST": PG_HOST, "PG_USER": PG_USER, "PG_PASSWORD": PG_PASSWORD, "PG_DB": PG_DB, "CHAPTARR_LIB_ROOT": CHAPTARR_LIB_ROOT}
+    missing = [k for k, v in pg.items() if not v]
+    if missing and len(missing) < len(pg):
+        out.append("Chaptarr checks are off: " + ", ".join(missing) + " empty.")
+    return out

@@ -98,6 +98,9 @@ def approve(fid, option=None):
         action = action["options"][option]["action"]
     if not action:
         return False
+    if not config.ABS_TOKEN:
+        store.set_status(fid, "failed", "ABS_TOKEN is empty; set it in the container settings")
+        return False
     store.set_status(fid, "queued")
     (_convert if action["type"] == "convert" else _work).put((fid, action))
     return True
