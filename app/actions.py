@@ -500,11 +500,22 @@ def convert(a, log):
                     raise RuntimeError("ABS encode failed: " + str(mine[0].get("error")))
                 break
         new_path = None
-    abs_.call("POST", f"/api/items/{a['item']}/scan")
-    time.sleep(5)
-    it = abs_.item(a["item"])
-    new = [abs_to_local(f["metadata"]["path"]) for f in it["media"]["audioFiles"]]
-    if len(new) != 1 or not new[0].lower().endswith(".m4b") or (new_path and new[0] != new_path):
+    finish_convert(a["item"], old_paths, new_path, log)
+
+
+def finish_convert(item_id, old_paths, new_path, log):
+    """After the swap: rescan the item (waiting until ABS reports the single m4b), write the full tags from ABS,
+    move Chaptarr's records to the new file."""
+    abs_ = ABS()
+    abs_.call("POST", f"/api/items/{item_id}/scan")
+    new = []
+    for _ in range(40):   # ABS can briefly report no files while it rescans
+        time.sleep(5)
+        abs_.wait_idle(600)
+        new = [abs_to_local(f["metadata"]["path"]) for f in abs_.item(item_id)["media"]["audioFiles"]]
+        if len(new) == 1 and new[0].lower().endswith(".m4b") and (not new_path or new[0] == new_path):
+            break
+    else:
         raise RuntimeError(f"after converting ABS lists {new}")
     log(f"new file: {new[0]}")
     tag_sync({}, log, only=[config.ABS_LIB_ROOT + new[0][len(config.LIBRARY):]])
@@ -520,3 +531,5 @@ def convert(a, log):
             if rest:
                 stmts.append(f'delete from "BookFiles" where "Id" in ({",".join(r["id"] for r in rest)});')
             pg.run(stmts); log(f"Chaptarr: {len(rows)} file record(s) -> the m4b")
+        else:
+            log("Chaptarr: no record for the old file(s)")
