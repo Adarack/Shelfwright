@@ -40,7 +40,8 @@ class Context:
             self.series[r["bookId"]].append({"id": r["id"], "name": r["name"], "sequence": r["sequence"] or ""})
         self.progress = {r["mediaItemId"] for r in db.execute("select distinct mediaItemId from mediaProgresses")}
         for it in self.items:
-            it["files"] = [a for a in json.loads(it["audioFiles"] or "[]") if not a.get("exclude")]
+            it["all_files"] = json.loads(it["audioFiles"] or "[]")
+            it["files"] = [a for a in it["all_files"] if not a.get("exclude")]
             it["tags_list"] = json.loads(it["tags"] or "[]")
             it["authors"] = self.authors.get(it["bookId"], [])
             it["series_list"] = self.series.get(it["bookId"], [])
@@ -213,17 +214,59 @@ def check_empty_dirs(ctx):
                 {"type": "remove_empty_dirs"}, safe=True)
 
 
-def check_conversion(ctx):
-    """Books not in a single m4b: several files, or mp3/other formats."""
+COPY_CODECS = {"aac", "alac", "eac3", "ac3"}   # audio an m4b can hold as it is
+
+
+def in_library(it):
+    """Items in the library folder this container works on (an ABS library can have more folders)."""
+    return (it["path"] or "").startswith(config.ABS_LIB_ROOT + "/")
+
+
+def foreign_files(it):
+    """Audio files an ABS item lists outside its own folder. ABS tracks files by inode; when a moved book's old
+    inode is reused, a stale entry can stay attached to another book (wrong track, length and chapters)."""
+    return [f for f in it["all_files"] if not f["metadata"]["path"].startswith((it["path"] or "") + "/")]
+
+
+def check_foreign_tracks(ctx):
     for it in ctx.items:
-        if it["isMissing"] or not it["files"]:
+        bad = foreign_files(it) if in_library(it) else []
+        if bad:
+            yield F("abs_foreign", it["id"], it["title"], f"ABS lists {len(bad)} audio file(s) from another folder in this book (wrong length/chapters)",
+                    {"path": it["relPath"], "foreign": [f["metadata"]["path"] for f in bad],
+                     "listening_progress": it["bookId"] in ctx.progress},
+                    {"type": "choose", "options": [{"label": "Re-add the book from its folder (metadata.json, cover and collections kept)",
+                                                    "action": {"type": "abs_readd", "item": it["id"]}}]})
+
+
+def reencode_bitrate(files):
+    """kbps for a re-encode: the source's, rounded UP to a standard step, capped only if CONVERT_MAX_BITRATE is set."""
+    src = max((f.get("bitRate") or 0) for f in files) / 1000 or 128
+    steps = [32, 48, 64, 96, 128, 160, 192, 224, 256, 320]
+    br = next((s for s in steps if s >= src - 2), 320)   # 2 kbps slack: a 128k file often reports 127.9k
+    return min(br, config.CONVERT_MAX_BITRATE) if config.CONVERT_MAX_BITRATE else br
+
+
+def check_conversion(ctx):
+    """Books not in a single m4b. Audio an m4b can hold as it is gets joined losslessly; anything else needs a
+    re-encode and is only proposed when CONVERT_REENCODE is on."""
+    for it in ctx.items:
+        if it["isMissing"] or not it["files"] or not in_library(it) or foreign_files(it):
             continue
         exts = {os.path.splitext(f["metadata"]["path"])[1].lower() for f in it["files"]}
-        if len(it["files"]) > 1 or exts - {".m4b"}:
-            br = max((f.get("bitRate") or 0) for f in it["files"]) // 1000
-            yield F("convert", it["id"], it["title"], f"{len(it['files'])} file(s), {', '.join(sorted(exts))}, ~{br} kbps",
-                    {"path": it["relPath"], "files": len(it["files"]), "formats": sorted(exts), "bitrate_kbps": br},
-                    {"type": "choose", "options": [{"label": "Convert to M4B", "action": {"type": "convert", "item": it["id"]}}]})
+        if len(it["files"]) == 1 and exts == {".m4b"}:
+            continue
+        codecs = {(f.get("codec") or "?").lower() for f in it["files"]}
+        br = round(max((f.get("bitRate") or 0) for f in it["files"]) / 1000)
+        detail = {"path": it["relPath"], "files": len(it["files"]), "formats": sorted(exts), "codecs": sorted(codecs), "bitrate_kbps": br}
+        if len(codecs) == 1 and codecs <= COPY_CODECS:
+            yield F("convert", it["id"], it["title"], f"{len(it['files'])} file(s), {', '.join(sorted(codecs))} ~{br} kbps: lossless join, quality unchanged",
+                    detail, {"type": "choose", "options": [{"label": "Join into one m4b (lossless)", "action": {"type": "convert", "item": it["id"], "mode": "copy"}}]})
+        elif config.CONVERT_REENCODE:
+            to = reencode_bitrate(it["files"])
+            yield F("convert", it["id"], it["title"], f"{len(it['files'])} file(s), {', '.join(sorted(codecs))} ~{br} kbps: re-encode to AAC {to} kbps (small quality loss)",
+                    {**detail, "target_kbps": to},
+                    {"type": "choose", "options": [{"label": f"Re-encode to m4b, AAC {to} kbps", "action": {"type": "convert", "item": it["id"], "mode": "reencode"}}]})
 
 
 def check_backups(ctx):

@@ -36,7 +36,8 @@
   <Config Name="PG_DB" Target="PG_DB" Default="" Mode="" Description="Chaptarr's main database" Type="Variable" Display="advanced" Required="false" Mask="false"></Config>
   <Config Name="AUTO_APPLY_SAFE" Target="AUTO_APPLY_SAFE" Default="false" Mode="" Description="true = safe fixes run on their own after each scan" Type="Variable" Display="always" Required="false" Mask="false">false</Config>
   <Config Name="SCAN_INTERVAL_HOURS" Target="SCAN_INTERVAL_HOURS" Default="24" Mode="" Description="Hours between automatic scans" Type="Variable" Display="always" Required="false" Mask="false">24</Config>
-  <Config Name="CONVERT_MAX_BITRATE" Target="CONVERT_MAX_BITRATE" Default="128" Mode="" Description="Highest m4b bitrate in kbps (lower sources keep their bitrate)" Type="Variable" Display="advanced" Required="false" Mask="false">128</Config>
+  <Config Name="CONVERT_REENCODE" Target="CONVERT_REENCODE" Default="false" Mode="" Description="true = also propose MP3/Ogg books for conversion. These need a re-encode to AAC (a small quality loss). AAC books are always joined losslessly." Type="Variable" Display="always" Required="false" Mask="false">false</Config>
+  <Config Name="CONVERT_MAX_BITRATE" Target="CONVERT_MAX_BITRATE" Default="0" Mode="" Description="Re-encodes only: highest AAC bitrate in kbps. 0 = no cap (the source bitrate, rounded up)." Type="Variable" Display="advanced" Required="false" Mask="false">0</Config>
   <Config Name="BACKUP_KEEP_DAYS" Target="BACKUP_KEEP_DAYS" Default="30" Mode="" Description="Days before the originals ABS kept after a conversion are offered for deletion" Type="Variable" Display="advanced" Required="false" Mask="false">30</Config>
   <Config Name="TZ" Target="TZ" Default="Etc/UTC" Mode="" Description="Time zone" Type="Variable" Display="advanced" Required="false" Mask="false">Etc/UTC</Config>
 </Container>

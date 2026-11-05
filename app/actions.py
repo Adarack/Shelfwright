@@ -1,5 +1,5 @@
 """Carry out a finding's action. Every function takes (action, log) and raises on failure."""
-import csv, json, os, re, shutil, time
+import csv, json, os, re, shutil, subprocess, time
 
 import config, standardize, tagsync
 from clients import ABS, Chaptarr, Pg, abs_snapshot, abs_db, q, abs_to_local, local_to_chaptarr, chaptarr_to_local
@@ -322,32 +322,190 @@ def delete_backup(a, log):
 
 # === conversion ===
 
-def convert(a, log):
-    """ABS's own m4b encoder (keeps the item, progress and its id; originals go to ABS's cache), then the full tags
-    back, then Chaptarr's records moved to the new file."""
+def _ffprobe(path):
+    out = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "a:0", "-show_entries",
+                          "stream=codec_name,profile,sample_rate,channels:format=duration", "-of", "json", path],
+                         capture_output=True, text=True)
+    if out.returncode:
+        raise RuntimeError(f"ffprobe {path}: {out.stderr.strip()[:300]}")
+    j = json.loads(out.stdout)
+    st = (j.get("streams") or [{}])[0]
+    return {"codec": st.get("codec_name"), "profile": st.get("profile"), "rate": st.get("sample_rate"),
+            "channels": st.get("channels"), "duration": float(j.get("format", {}).get("duration") or 0)}
+
+
+def _ffprobe_chapters(path):
+    out = subprocess.run(["ffprobe", "-v", "error", "-show_chapters", "-of", "json", path], capture_output=True, text=True)
+    return [{"start": float(c["start_time"]), "end": float(c["end_time"]), "title": (c.get("tags") or {}).get("title") or f"Chapter {i + 1}"}
+            for i, c in enumerate(json.loads(out.stdout or "{}").get("chapters", []))]
+
+
+def _ffmeta(text):
+    return re.sub(r"([=;#\\\n])", r"\\\1", str(text or ""))
+
+
+def _join_lossless(it, files, log):
+    """Join the book's audio into one m4b with ffmpeg stream copy (no re-encode), the way ABS's own encoder swaps
+    the files: originals to ABS's item cache, the new audio written into the FIRST track's file (same inode, so ABS
+    keeps the item and progress), which is then renamed to <folder>.m4b."""
+    m = it["media"]
+    paths = [abs_to_local(f["metadata"]["path"]) for f in files]
+    probes = [_ffprobe(p) for p in paths]
+    keys = {(p["codec"], p["profile"], p["rate"], p["channels"]) for p in probes}
+    if len(keys) != 1:
+        raise RuntimeError(f"the files differ in codec/sample rate/channels ({sorted(map(str, keys))}); a lossless join needs them identical")
+    folder = os.path.dirname(paths[0])
+    cache = os.path.join(config.ABS_METADATA_DIR, "cache", "items", it["id"])
+    os.makedirs(cache, exist_ok=True)
+    target = os.path.join(folder, os.path.basename(folder) + ".m4b")
+    if os.path.exists(target) and target not in paths:
+        raise RuntimeError(f"{target} already exists")
+    tmp = os.path.join(cache, "shelfwright-join.m4b")
+    lst = os.path.join(cache, "shelfwright-files.txt")
+    meta = os.path.join(cache, "shelfwright-ffmetadata.txt")
+    with open(lst, "w", encoding="utf-8") as f:
+        for p in paths:
+            f.write("file '" + p.replace("'", "'\\''") + "'\n")
+    md = m["metadata"]
+    chapters = m.get("chapters") or []
+    if not chapters:   # one chapter per file
+        t = 0.0
+        for i, p in enumerate(probes):
+            chapters.append({"start": t, "end": t + p["duration"], "title": f"Chapter {i + 1}"}); t += p["duration"]
+    with open(meta, "w", encoding="utf-8") as f:
+        f.write(";FFMETADATA1\n")
+        f.write(f"title={_ffmeta(md.get('title'))}\nalbum={_ffmeta(md.get('title'))}\n")
+        f.write(f"artist={_ffmeta(md.get('authorName'))}\nalbum_artist={_ffmeta(md.get('authorName'))}\n")
+        for c in chapters:
+            f.write(f"\n[CHAPTER]\nTIMEBASE=1/1000\nSTART={int(round(c['start'] * 1000))}\nEND={int(round(c['end'] * 1000))}\ntitle={_ffmeta(c['title'])}\n")
+    cmd = ["ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error", "-y", "-f", "concat", "-safe", "0", "-i", lst, "-i", meta]
+    cover = abs_to_local(m.get("coverPath")) if m.get("coverPath") else None
+    if cover and os.path.isfile(cover) and cover.lower().endswith((".jpg", ".jpeg", ".png")):
+        cmd += ["-i", cover, "-map", "0:a", "-map", "2:v", "-c:v", "copy", "-disposition:v:0", "attached_pic"]
+    else:
+        cmd += ["-map", "0:a"]
+    cmd += ["-map_metadata", "1", "-map_chapters", "1", "-c:a", "copy", "-movflags", "+faststart", "-f", "mp4", tmp]
+    log(f"joining {len(paths)} file(s) losslessly ({probes[0]['codec']}, {probes[0]['rate']} Hz, {probes[0]['channels']} ch)")
+    r = subprocess.run(cmd, capture_output=True, text=True)
+    if r.returncode:
+        raise RuntimeError("ffmpeg: " + r.stderr.strip()[-800:])
+    # check before touching the originals: same codec, nothing lost in length
+    out = _ffprobe(tmp)
+    total = sum(p["duration"] for p in probes)
+    if out["codec"] != probes[0]["codec"] or abs(out["duration"] - total) > max(2.0, total * 0.001):
+        raise RuntimeError(f"joined file looks wrong: {out['codec']} {out['duration']:.1f}s vs {probes[0]['codec']} {total:.1f}s; originals untouched")
+    log(f"joined: {out['duration'] / 3600:.2f} h, {os.path.getsize(tmp) / 2**20:.0f} MB")
+    # originals to ABS's item cache (the first one copied, as ABS does), then the swap
+    for i, p in enumerate(paths):
+        dest = os.path.join(cache, os.path.basename(p))
+        if i == 0:
+            shutil.copy2(p, dest)
+        else:
+            shutil.move(p, dest)
+    with open(tmp, "rb") as src, open(paths[0], "r+b") as dst:   # in place: same inode, owner and permissions
+        dst.truncate(0)
+        shutil.copyfileobj(src, dst, 16 * 2**20)
+        dst.flush(); os.fsync(dst.fileno())
+    os.rename(paths[0], target)
+    for f in (tmp, lst, meta):
+        os.remove(f)
+    log(f"originals kept in {cache}")
+    return paths, target
+
+
+def abs_readd(a, log):
+    """Remove an ABS item from the database only (never its files) and let a library scan add the folder again as a
+    new item: clears stale entries a rescan can't. Metadata comes back from the folder's metadata.json; collection
+    membership is put back. Refused if the book has listening progress."""
     abs_ = ABS()
     it = abs_.item(a["item"])
-    files = [f for f in it["media"]["audioFiles"] if not f.get("exclude")]
-    old_paths = [abs_to_local(f["metadata"]["path"]) for f in files]
-    src_br = max((f.get("bitRate") or 0) for f in files) // 1000 or config.CONVERT_MAX_BITRATE
-    br = min(config.CONVERT_MAX_BITRATE, max(64, round(src_br / 32) * 32))
-    channels = max((f.get("channels") or 2) for f in files)
-    log(f"{it['media']['metadata']['title']}: {len(files)} file(s) -> m4b at {br}k, {channels} ch")
-    abs_.call("POST", f"/api/tools/item/{a['item']}/encode-m4b?bitrate={br}k&codec=aac&channels={channels}")
-    end = time.time() + 6 * 3600
-    while time.time() < end:
-        time.sleep(15)
-        mine = [t for t in abs_.tasks() if (t.get("data") or {}).get("libraryItemId") == a["item"] and t.get("action") == "encode-m4b"]
-        if not mine or mine[0].get("isFinished"):
-            if mine and mine[0].get("isFailed"):
-                raise RuntimeError("ABS encode failed: " + str(mine[0].get("error")))
-            break
+    rel = it["relPath"]
+    db, done = abs_snapshot()
+    try:
+        con = abs_db(db)
+        if con.execute("select 1 from mediaProgresses where mediaItemId = ?", (it["media"]["id"],)).fetchone():
+            raise RuntimeError("the book has listening progress; not re-adding it")
+    finally:
+        done()
+    folder = abs_to_local(it["path"])
+    if not folder or not os.path.isfile(os.path.join(folder, "metadata.json")):
+        raise RuntimeError(f"no metadata.json in {folder}; re-adding would lose the ABS metadata")
+    colls = [c["id"] for c in abs_.call("GET", f"/api/libraries/{config.ABS_LIBRARY_ID}/collections?limit=1000").get("results", [])
+             if any(b.get("id") == a["item"] for b in c.get("books", []))]
+    log(f"{rel}: in {len(colls)} collection(s); removing the ABS entry (files untouched) and rescanning")
+    abs_.delete_item(a["item"])
+    time.sleep(3)
+    abs_.scan(); time.sleep(5); abs_.wait_idle()
+    db, done = abs_snapshot()
+    try:
+        r = abs_db(db).execute("select id from libraryItems where libraryId = ? and relPath = ?", (config.ABS_LIBRARY_ID, rel)).fetchone()
+    finally:
+        done()
+    if not r:
+        raise RuntimeError(f"ABS did not add {rel} again; run a library scan in ABS")
+    new_id = r["id"]
+    new = abs_.item(new_id)
+    bad = [f["metadata"]["path"] for f in new["media"]["audioFiles"] if not f["metadata"]["path"].startswith(new["path"] + "/")]
+    if bad:
+        raise RuntimeError(f"re-added item {new_id} still lists {bad}")
+    for c in colls:
+        abs_.call("POST", f"/api/collections/{c}/book", {"id": new_id})
+    # metadata.json still holds the old (merged) chapter list: take the chapters from the audio itself
+    m = new["media"]
+    if any(c["end"] > m["duration"] + 1 for c in m.get("chapters") or []):
+        if len(m["audioFiles"]) == 1:
+            emb = _ffprobe_chapters(abs_to_local(m["audioFiles"][0]["metadata"]["path"]))
+        else:
+            emb, t = [], 0.0
+            for i, f in enumerate(m["audioFiles"]):
+                emb.append({"start": t, "end": t + f["duration"], "title": f"Chapter {i + 1}"}); t += f["duration"]
+        ch = emb or [{"start": 0, "end": m["duration"], "title": m["metadata"]["title"]}]
+        abs_.call("POST", f"/api/items/{new_id}/chapters", {"chapters": [{"id": i, **c} for i, c in enumerate(ch)]})
+        log(f"chapters from metadata.json ran past the end; set {len(ch)} chapter(s) from the audio")
+        new = abs_.item(new_id)
+    log(f"re-added as {new_id}: {len(new['media']['audioFiles'])} audio file(s), {round(new['media']['duration'] / 60)} min, "
+        f"{len(new['media'].get('chapters') or [])} chapters; collections restored: {len(colls)}")
+
+
+def convert(a, log):
+    """One m4b per book. mode=copy: a lossless join (AAC/ALAC/E-AC-3), done here with ffmpeg stream copy.
+    mode=reencode: ABS's own encoder at the source bitrate or higher (MP3, Ogg, ...). Either way the ABS item,
+    its id and listening progress are kept, originals go to ABS's item cache, the full tags are written back from
+    ABS, and Chaptarr's records are moved to the new file."""
+    import checks
+    abs_ = ABS()
+    it = abs_.item(a["item"])
+    files = sorted((f for f in it["media"]["audioFiles"] if not f.get("exclude")), key=lambda f: f.get("index") or 0)
+    stray = [f["metadata"]["path"] for f in it["media"]["audioFiles"] if not f["metadata"]["path"].startswith(it["path"] + "/")]
+    if stray:
+        raise RuntimeError(f"ABS lists audio from another folder in this book ({stray}); fix that first (ABS: wrong audio file)")
+    title = it["media"]["metadata"]["title"]
+    codecs = {(f.get("codec") or "?").lower() for f in files}
+    mode = a.get("mode") or ("copy" if len(codecs) == 1 and codecs <= checks.COPY_CODECS else "reencode")
+    if mode == "copy":
+        log(f"{title}: {len(files)} file(s), lossless join")
+        old_paths, new_path = _join_lossless(it, files, log)
+    else:
+        old_paths = [abs_to_local(f["metadata"]["path"]) for f in files]
+        br = checks.reencode_bitrate(files)
+        channels = max((f.get("channels") or 2) for f in files)
+        log(f"{title}: {len(files)} file(s), {', '.join(sorted(codecs))} -> AAC {br}k, {channels} ch with ABS's encoder")
+        abs_.call("POST", f"/api/tools/item/{a['item']}/encode-m4b?bitrate={br}k&codec=aac&channels={channels}")
+        end = time.time() + 6 * 3600
+        while time.time() < end:
+            time.sleep(15)
+            mine = [t for t in abs_.tasks() if (t.get("data") or {}).get("libraryItemId") == a["item"] and t.get("action") == "encode-m4b"]
+            if not mine or mine[0].get("isFinished"):
+                if mine and mine[0].get("isFailed"):
+                    raise RuntimeError("ABS encode failed: " + str(mine[0].get("error")))
+                break
+        new_path = None
     abs_.call("POST", f"/api/items/{a['item']}/scan")
     time.sleep(5)
     it = abs_.item(a["item"])
     new = [abs_to_local(f["metadata"]["path"]) for f in it["media"]["audioFiles"]]
-    if len(new) != 1 or not new[0].lower().endswith(".m4b"):
-        raise RuntimeError(f"after encoding ABS lists {new}")
+    if len(new) != 1 or not new[0].lower().endswith(".m4b") or (new_path and new[0] != new_path):
+        raise RuntimeError(f"after converting ABS lists {new}")
     log(f"new file: {new[0]}")
     tag_sync({}, log, only=[config.ABS_LIB_ROOT + new[0][len(config.LIBRARY):]])
     if config.CHAPTARR_ENABLED:

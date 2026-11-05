@@ -10,7 +10,7 @@ ACTIONS = {
     "abs_merge_author": actions.abs_merge_author, "abs_rename_author": actions.abs_rename_author, "abs_merge_series": actions.abs_merge_series,
     "ch_remove_files": actions.ch_remove_files, "ch_author_path": actions.ch_author_path, "ch_relink_book": actions.ch_relink_book, "ch_unlink_files": actions.ch_unlink_files,
     "standardize": actions.standardize_all, "remove_empty_dirs": actions.remove_empty_dirs, "delete_backup": actions.delete_backup,
-    "convert": actions.convert,
+    "convert": actions.convert, "abs_readd": actions.abs_readd,
 }
 # Jobs that move or rewrite files run one at a time; conversions have their own lane
 _work = queue.Queue()
@@ -56,7 +56,7 @@ def scan():
         plan_rows = standardize.plan(config.LIBRARY, standardize.load_universes(os.path.join(os.path.dirname(__file__), "universes.json")))
         groups = {
             "tag_sync": checks.check_tags(ctx, tag_rows), "drama": checks.check_drama(ctx), "abs_missing": checks.check_missing(ctx),
-            "abs_double": checks.check_double_entries(ctx), "duplicate": checks.check_duplicates(ctx),
+            "abs_double": checks.check_double_entries(ctx), "abs_foreign": checks.check_foreign_tracks(ctx), "duplicate": checks.check_duplicates(ctx),
             "author": checks.check_author_variants(ctx), "series_variant": checks.check_series_variants(ctx), "title": checks.check_titles(ctx),
             "naming": checks.check_naming(ctx, plan_rows, {os.path.dirname(r["file"])[len(config.ABS_LIB_ROOT) + 1:] for r in tag_rows if r["result"] == "would update"}), "empty_dirs": checks.check_empty_dirs(ctx), "convert": checks.check_conversion(ctx),
             "backup": checks.check_backups(ctx), "chaptarr": checks.check_chaptarr(ctx), "ch_links": checks.check_chaptarr_links(ctx), "ch_titles": checks.check_chaptarr_titles(ctx),

@@ -6,7 +6,7 @@ LABEL org.opencontainers.image.source="https://github.com/Adarack/Shelfwright" \
       org.opencontainers.image.licenses="MIT"
 ARG APP_VERSION=dev
 LABEL org.opencontainers.image.version="${APP_VERSION}"
-RUN apk add --no-cache python3 py3-mutagen tzdata
+RUN apk add --no-cache python3 py3-mutagen tzdata ffmpeg
 WORKDIR /app
 COPY app/ /app/
 RUN python3 -m py_compile /app/*.py && rm -rf /app/__pycache__

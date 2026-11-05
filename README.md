@@ -25,7 +25,12 @@ Author/Title/Title.m4b                     standalone books
 
 ## Converting to m4b
 
-Conversion uses Audiobookshelf's own **Encode M4B** tool, so the ABS item, its metadata and listening progress stay intact. The bitrate is the source's, capped by `CONVERT_MAX_BITRATE`. Afterwards Shelfwright writes the full tags from ABS into the new file (the ABS encoder writes only a few) and updates Chaptarr's record. ABS keeps the original tracks in its metadata cache; after `BACKUP_KEEP_DAYS` Shelfwright offers to delete them.
+Books not in a single m4b are proposed for conversion, keeping the original audio quality:
+
+- **AAC, ALAC or E-AC-3 audio** (multi-file m4b/m4a, most GraphicAudio) is **joined losslessly** with ffmpeg stream copy: no re-encode, the audio is bit-for-bit the original. Chapters and cover come from Audiobookshelf.
+- **MP3, Ogg and others** need a re-encode to AAC, which always loses a little. They are only proposed when `CONVERT_REENCODE=true`, and then use Audiobookshelf's own **Encode M4B** at the source bitrate rounded up to a standard step (capped only by `CONVERT_MAX_BITRATE`, default none).
+
+Either way the files are swapped the way Audiobookshelf's encoder does it (the new m4b is written into the first track's file and renamed), so the ABS item, its metadata and listening progress stay intact. The joined file is checked (codec and length) before any original is touched. Afterwards Shelfwright writes the full tags from ABS into the new file and updates Chaptarr's record. The original tracks are kept in ABS's metadata cache; after `BACKUP_KEEP_DAYS` Shelfwright offers to delete them.
 
 ## Install
 
@@ -46,7 +51,8 @@ Image: `ghcr.io/adarack/shelfwright:latest`. An Unraid template is in [`unraid/s
 | `PG_HOST`, `PG_PORT`, `PG_USER`, `PG_PASSWORD`, `PG_DB` | Chaptarr's PostgreSQL main database; Chaptarr checks are off unless all are set |
 | `AUTO_APPLY_SAFE` | `true` lets safe fixes run after each scan (default `false`) |
 | `SCAN_INTERVAL_HOURS` | hours between scans (default 24) |
-| `CONVERT_MAX_BITRATE`, `BACKUP_KEEP_DAYS` | conversion settings |
+| `CONVERT_REENCODE` | `true` also proposes MP3/Ogg books (re-encoded, small quality loss); default `false` |
+| `CONVERT_MAX_BITRATE`, `BACKUP_KEEP_DAYS` | re-encode bitrate cap (default 0 = none), days to keep originals |
 
 The web UI listens on port 8484.
 
