@@ -487,8 +487,7 @@ def convert(a, log):
         old_paths, new_path = _join_lossless(it, files, log)
     else:
         old_paths = [abs_to_local(f["metadata"]["path"]) for f in files]
-        br = checks.reencode_bitrate(files)
-        channels = max((f.get("channels") or 2) for f in files)
+        br, channels = checks.reencode_plan(files)
         log(f"{title}: {len(files)} file(s), {', '.join(sorted(codecs))} -> AAC {br}k, {channels} ch with ABS's encoder")
         abs_.call("POST", f"/api/tools/item/{a['item']}/encode-m4b?bitrate={br}k&codec=aac&channels={channels}")
         end = time.time() + 6 * 3600

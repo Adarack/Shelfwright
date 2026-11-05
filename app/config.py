@@ -41,7 +41,7 @@ OWNER = (int(env("PUID", "99")), int(env("PGID", "100")))
 # Books whose audio can go into an m4b as it is (AAC, ALAC, E-AC-3) are joined without re-encoding: no quality change.
 # Other formats (MP3, Ogg, ...) need a re-encode, which always loses a little; they are only proposed when this is on.
 CONVERT_REENCODE = env("CONVERT_REENCODE", "false").lower() == "true"
-# Re-encodes use at least the source's bitrate (rounded up to a standard step). 0 = no cap.
+# Re-encodes get 1.5x the source bitrate per channel (48-128 kbps per channel), see checks.reencode_plan. 0 = no cap.
 CONVERT_MAX_BITRATE = int(env("CONVERT_MAX_BITRATE", "0"))
 CONVERT_CONCURRENCY = int(env("CONVERT_CONCURRENCY", "1"))
 BACKUP_KEEP_DAYS = int(env("BACKUP_KEEP_DAYS", "30"))          # ABS keeps the original tracks; offered for removal after this

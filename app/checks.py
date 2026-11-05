@@ -239,12 +239,20 @@ def check_foreign_tracks(ctx):
                                                     "action": {"type": "abs_readd", "item": it["id"]}}]})
 
 
-def reencode_bitrate(files):
-    """kbps for a re-encode: the source's, rounded UP to a standard step, capped only if CONVERT_MAX_BITRATE is set."""
-    src = max((f.get("bitRate") or 0) for f in files) / 1000 or 128
-    steps = [32, 48, 64, 96, 128, 160, 192, 224, 256, 320]
-    br = next((s for s in steps if s >= src - 2), 320)   # 2 kbps slack: a 128k file often reports 127.9k
-    return min(br, config.CONVERT_MAX_BITRATE) if config.CONVERT_MAX_BITRATE else br
+def reencode_plan(files):
+    """(kbps, channels) for re-encoding lossy audio (MP3, Ogg, ...) to AAC with as little extra loss as possible.
+
+    Worked out per channel, from the book's highest-bitrate file: 1.5x the source (ffmpeg's built-in AAC encoder
+    needs that headroom over MP3 to add no audible loss of its own), at least 48 kbps per channel, and at most
+    128 kbps per channel, where the encoder is transparent and more bitrate can't add quality the source never had.
+    Mono stays mono, the sample rate is kept. CONVERT_MAX_BITRATE, when set, caps the total."""
+    channels = max((f.get("channels") or 2) for f in files)
+    per_ch = max(((f.get("bitRate") or 0) / 1000) / max(1, f.get("channels") or channels) for f in files) or 64
+    target = min(128, max(48, per_ch * 1.5))
+    kbps = int(-(-target * channels // 16) * 16)   # round up to a multiple of 16
+    if config.CONVERT_MAX_BITRATE:
+        kbps = min(kbps, config.CONVERT_MAX_BITRATE)
+    return kbps, channels
 
 
 def check_conversion(ctx):
@@ -263,10 +271,12 @@ def check_conversion(ctx):
             yield F("convert", it["id"], it["title"], f"{len(it['files'])} file(s), {', '.join(sorted(codecs))} ~{br} kbps: lossless join, quality unchanged",
                     detail, {"type": "choose", "options": [{"label": "Join into one m4b (lossless)", "action": {"type": "convert", "item": it["id"], "mode": "copy"}}]})
         elif config.CONVERT_REENCODE:
-            to = reencode_bitrate(it["files"])
-            yield F("convert", it["id"], it["title"], f"{len(it['files'])} file(s), {', '.join(sorted(codecs))} ~{br} kbps: re-encode to AAC {to} kbps (small quality loss)",
-                    {**detail, "target_kbps": to},
-                    {"type": "choose", "options": [{"label": f"Re-encode to m4b, AAC {to} kbps", "action": {"type": "convert", "item": it["id"], "mode": "reencode"}}]})
+            to, ch = reencode_plan(it["files"])
+            layout = {1: "mono", 2: "stereo"}.get(ch, f"{ch} ch")
+            yield F("convert", it["id"], it["title"],
+                    f"{len(it['files'])} file(s), {', '.join(sorted(codecs))} ~{br} kbps {layout}: re-encode to AAC {to} kbps {layout}",
+                    {**detail, "target_kbps": to, "channels": ch},
+                    {"type": "choose", "options": [{"label": f"Re-encode to m4b, AAC {to} kbps {layout}", "action": {"type": "convert", "item": it["id"], "mode": "reencode"}}]})
 
 
 def check_backups(ctx):
