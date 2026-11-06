@@ -21,8 +21,20 @@ _files_lock = threading.Lock()
 FILE_ACTIONS = {"tag_sync", "abs_delete_files", "standardize", "remove_empty_dirs", "convert", "delete_backup"}
 
 
+class _Logger:
+    """log(line) appends to the job's log; log.progress(pct) sets its progress (0-100)."""
+    def __init__(self, jid):
+        self.jid = jid
+
+    def __call__(self, line):
+        store.job_log(self.jid, line)
+
+    def progress(self, pct):
+        store.job_progress(self.jid, pct)
+
+
 def _logger(jid):
-    return lambda line: store.job_log(jid, line)
+    return _Logger(jid)
 
 
 def run_action(action, log):
@@ -115,13 +127,14 @@ def _worker(q):
         fid, action = q.get()
         f = store.get_finding(fid)
         jid = store.new_job(action["type"], f"{f['check']}: {f['title']}")
-        store.set_status(fid, "running")
+        store.set_status(fid, "running", f"job {jid}")
         try:
             if action["type"] in FILE_ACTIONS:
                 with _files_lock:
                     run_action(action, _logger(jid))
             else:
                 run_action(action, _logger(jid))
+            store.job_progress(jid, 100)
             store.set_status(fid, "applied", f"job {jid}")
             store.end_job(jid, "done")
         except Exception as e:

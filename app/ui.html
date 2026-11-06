@@ -25,6 +25,8 @@ table{border-collapse:collapse;width:100%;margin-top:6px}td,th{border-bottom:1px
 .safe{font-size:11px;color:var(--acc);margin-left:6px}
 .jobs .j{display:flex;gap:8px;padding:4px 0;border-bottom:1px solid var(--line);cursor:pointer;font-size:13px}
 .jobs .j span:first-child{flex:1;word-break:break-word}
+.prog{display:flex;align-items:center;gap:8px;margin-top:8px}.prog .tr{flex:1;height:8px;background:var(--chip);border-radius:4px;overflow:hidden}
+.prog .tr i{display:block;height:100%;width:0;background:var(--acc);transition:width .6s}.prog b{font-size:12px;min-width:44px;text-align:right;font-variant-numeric:tabular-nums}
 </style></head><body>
 <header><h1>Shelfwright <span id="ver" class="mute" style="font-size:12px;font-weight:400"></span></h1><span id="last" class="mute"></span><span style="flex:1"></span>
 <button id="scan" class="p">Scan now</button></header>
@@ -45,7 +47,7 @@ async function load(){
   let h=`<a data-c="" class="${S.check?"":"on"}">All open<span class="n">${Object.values(s.counts).reduce((a,c)=>a+(c.open||0)+(c.failed||0),0)}</span></a>`;
   for(const [g,cs] of GROUPS){h+=`<h3>${g}</h3>`;for(const c of cs){const n=(s.counts[c]?.open||0)+(s.counts[c]?.failed||0);
     h+=`<a data-c="${c}" class="${S.check===c?"on":""}" title="${esc(s.checks[c]?.[1])}">${esc(s.checks[c]?.[0]||c)}<span class="n ${n?"":"z"}">${n}</span></a>`}}
-  h+=`<h3>Jobs</h3><div class="jobs">`+s.jobs.map(j=>`<div class="j" data-j="${j.id}"><span>${esc(j.title)}</span><span class="st ${j.status=="done"?"applied":j.status}">${j.status}</span></div>`).join("")+"</div>";
+  h+=`<h3>Jobs</h3><div class="jobs">`+s.jobs.map(j=>`<div class="j" data-j="${j.id}"><span>${esc(j.title)}</span><span class="st ${j.status=="done"?"applied":j.status}">${j.status}${j.status=="running"&&j.progress!=null?" "+Math.floor(j.progress)+"%":""}</span></div>`).join("")+"</div>";
   $("#nav").innerHTML=h;
   $("#nav").querySelectorAll("a").forEach(a=>a.onclick=()=>{S.check=a.dataset.c||null;load()});
   $("#nav").querySelectorAll(".j").forEach(a=>a.onclick=()=>showJob(a.dataset.j));
@@ -69,9 +71,12 @@ function card(f){
   }
   if(can)acts+=`<button data-rj="${f.id}">${a?"Ignore":"Dismiss"}</button>`;
   const name=S.sum.checks[f.check]?.[0]||f.check;
+  const jm=/job (\d+)/.exec(f.result||""), p0=jm?Math.floor((S.sum.jobs.find(j=>j.id==jm[1])||{}).progress||0):0;
+  const live=f.status==="running"&&jm?`<div class="prog" data-live="${jm[1]}"><div class="tr"><i style="width:${p0}%"></i></div><b>${p0}%</b></div>
+  <details class="live" data-live-log="${jm[1]}"><summary>Live log</summary><pre></pre></details>`:(f.status==="queued"?`<div class="mute" style="margin-top:6px">Waiting for the jobs ahead of it…</div>`:"");
   return `<div class="f"><div class="t">${esc(f.title)}<span class="st ${f.status}">${f.status}</span>${f.safe?'<span class="safe">safe</span>':""}</div>
   <div class="s">${S.check?"":esc(name)+" · "}${esc(f.summary)}</div>${f.status=="failed"&&f.result?`<div style="color:var(--bad)">${esc(f.result)}</div>`:""}
-  ${detail(f.detail)}${acts?`<div class="acts">${acts}</div>`:""}</div>`;
+  ${live}${detail(f.detail)}${acts?`<div class="acts">${acts}</div>`:""}</div>`;
 }
 async function list(){
   const st=S.status==="open"?"":S.status;
@@ -93,10 +98,27 @@ async function list(){
 }
 async function showJob(id){
   const j=await api("/api/jobs/"+id);
-  $("#bar").innerHTML=`<button id="back">← Back</button><b>${esc(j.title)}</b><span class="st">${j.status}</span>`;
-  $("#back").onclick=list;
-  $("#list").innerHTML=`<pre style="max-height:none">${esc(j.log||"(no output yet)")}</pre>`;
+  $("#bar").innerHTML=`<button id="back">← Back</button><b>${esc(j.title)}</b><span class="st">${j.status}${j.status=="running"&&j.progress!=null?" "+Math.floor(j.progress)+"%":""}</span>`;
+  $("#back").onclick=()=>{S.job=null;list()};
+  $("#list").innerHTML=`<pre id="joblog" style="max-height:none">${esc(j.log||"(no output yet)")}</pre>`;
+  S.job=j.status==="running"?id:null;
+  if(S.job)setTimeout(()=>{if(S.job===id&&$("#back"))showJob(id)},2000);
 }
+// running jobs: progress bars and open live logs refresh every 2 s; a finished job reloads the list
+const ended=new Set();
+setInterval(async()=>{
+  const ids=new Set([...document.querySelectorAll("[data-live]")].map(e=>e.dataset.live));
+  for(const id of ids){
+    const j=await api("/api/jobs/"+id);
+    const pct=Math.floor(j.progress||0);
+    document.querySelectorAll(`[data-live="${id}"]`).forEach(e=>{e.querySelector("i").style.width=pct+"%";e.querySelector("b").textContent=pct+"%"});
+    document.querySelectorAll(`details[data-live-log="${id}"][open] pre`).forEach(pre=>{
+      const atEnd=pre.scrollTop+pre.clientHeight>=pre.scrollHeight-20;
+      pre.textContent=j.log||"(no output yet)";
+      if(atEnd)pre.scrollTop=pre.scrollHeight});
+    if(j.status!=="running"&&!ended.has(id)){ended.add(id);load()}
+  }
+},2000);
 $("#scan").onclick=async()=>{$("#scan").disabled=true;await api("/api/scan",{});setTimeout(()=>{$("#scan").disabled=false;load()},1500)};
 load();setInterval(()=>{if(!document.querySelector("details[open]")&&!$("#back"))load()},15000);
 </script></body></html>

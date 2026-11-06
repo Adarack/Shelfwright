@@ -344,6 +344,11 @@ def _ffmeta(text):
     return re.sub(r"([=;#\\\n])", r"\\\1", str(text or ""))
 
 
+def _progress(log, pct):
+    if hasattr(log, "progress"):
+        log.progress(pct)
+
+
 def _join_lossless(it, files, log):
     """Join the book's audio into one m4b with ffmpeg stream copy (no re-encode), the way ABS's own encoder swaps
     the files: originals to ABS's item cache, the new audio written into the FIRST track's file (same inode, so ABS
@@ -384,17 +389,34 @@ def _join_lossless(it, files, log):
         cmd += ["-i", cover, "-map", "0:a", "-map", "2:v", "-c:v", "copy", "-disposition:v:0", "attached_pic"]
     else:
         cmd += ["-map", "0:a"]
-    cmd += ["-map_metadata", "1", "-map_chapters", "1", "-c:a", "copy", "-movflags", "+faststart", "-f", "mp4", tmp]
-    log(f"joining {len(paths)} file(s) losslessly ({probes[0]['codec']}, {probes[0]['rate']} Hz, {probes[0]['channels']} ch)")
-    r = subprocess.run(cmd, capture_output=True, text=True)
-    if r.returncode:
-        raise RuntimeError("ffmpeg: " + r.stderr.strip()[-800:])
+    cmd += ["-map_metadata", "1", "-map_chapters", "1", "-c:a", "copy", "-movflags", "+faststart", "-f", "mp4",
+            "-progress", "pipe:1", "-nostats", tmp]
+    total = sum(p["duration"] for p in probes) or 1
+    log(f"joining {len(paths)} file(s) losslessly ({probes[0]['codec']}, {probes[0]['rate']} Hz, {probes[0]['channels']} ch, {total / 3600:.2f} h)")
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    step, best = 0, 0.0
+    for line in proc.stdout:   # -progress: key=value lines, out_time_us = position in the output
+        if line.startswith("out_time_us="):
+            try:
+                pct = int(line.split("=", 1)[1]) / 1e6 / total * 100
+            except ValueError:
+                continue
+            if pct <= 0 or pct * 0.85 <= best:   # ffmpeg ends with a placeholder; progress only moves forward
+                continue
+            best = min(85.0, pct * 0.85)
+            _progress(log, best)                 # the join is 0-85 %, the swap and rescan the rest
+            if pct >= step + 10:
+                step = int(pct // 10 * 10); log(f"joined {step}%")
+    err = proc.stderr.read()
+    if proc.wait():
+        raise RuntimeError("ffmpeg: " + err.strip()[-800:])
     # check before touching the originals: same codec, nothing lost in length
     out = _ffprobe(tmp)
     total = sum(p["duration"] for p in probes)
     if out["codec"] != probes[0]["codec"] or abs(out["duration"] - total) > max(2.0, total * 0.001):
         raise RuntimeError(f"joined file looks wrong: {out['codec']} {out['duration']:.1f}s vs {probes[0]['codec']} {total:.1f}s; originals untouched")
     log(f"joined: {out['duration'] / 3600:.2f} h, {os.path.getsize(tmp) / 2**20:.0f} MB")
+    _progress(log, 86)
     # originals to ABS's item cache (the first one copied, as ABS does), then the swap
     for i, p in enumerate(paths):
         dest = os.path.join(cache, os.path.basename(p))
@@ -410,6 +432,7 @@ def _join_lossless(it, files, log):
     for f in (tmp, lst, meta):
         os.remove(f)
     log(f"originals kept in {cache}")
+    _progress(log, 92)
     return paths, target
 
 
@@ -490,14 +513,32 @@ def convert(a, log):
         br, channels = checks.reencode_plan(files)
         log(f"{title}: {len(files)} file(s), {', '.join(sorted(codecs))} -> AAC {br}k, {channels} ch with ABS's encoder")
         abs_.call("POST", f"/api/tools/item/{a['item']}/encode-m4b?bitrate={br}k&codec=aac&channels={channels}")
-        end = time.time() + 6 * 3600
+        # ABS reports progress only over its websocket; its encoder writes <item cache>/<folder>.m4b, so the
+        # progress is that file's size against the expected size (bitrate x length)
+        folder = os.path.dirname(old_paths[0])
+        tmp = os.path.join(config.ABS_METADATA_DIR, "cache", "items", a["item"], os.path.basename(folder) + ".m4b")
+        duration = sum(f.get("duration") or 0 for f in files)
+        expected = br * 1000 / 8 * duration or 1
+        log(f"{duration / 3600:.2f} h to encode, about {expected / 2**20:.0f} MB")
+        end, step, best = time.time() + 12 * 3600, 0, 0.0
         while time.time() < end:
-            time.sleep(15)
+            time.sleep(5)
+            try:
+                pct = min(99.0, os.path.getsize(tmp) / expected * 100)
+                if pct * 0.92 > best:
+                    best = pct * 0.92
+                    _progress(log, best)
+                if pct >= step + 10:
+                    step = int(pct // 10 * 10); log(f"encoded {step}%")
+            except OSError:
+                pass
             mine = [t for t in abs_.tasks() if (t.get("data") or {}).get("libraryItemId") == a["item"] and t.get("action") == "encode-m4b"]
             if not mine or mine[0].get("isFinished"):
                 if mine and mine[0].get("isFailed"):
                     raise RuntimeError("ABS encode failed: " + str(mine[0].get("error")))
                 break
+        log("ABS finished encoding")
+        _progress(log, 92)
         new_path = None
     finish_convert(a["item"], old_paths, new_path, log)
 
@@ -517,7 +558,9 @@ def finish_convert(item_id, old_paths, new_path, log):
     else:
         raise RuntimeError(f"after converting ABS lists {new}")
     log(f"new file: {new[0]}")
+    _progress(log, 96)
     tag_sync({}, log, only=[config.ABS_LIB_ROOT + new[0][len(config.LIBRARY):]])
+    _progress(log, 98)
     if config.CHAPTARR_ENABLED:
         pg = Pg()
         olds = [local_to_chaptarr(p) for p in old_paths]

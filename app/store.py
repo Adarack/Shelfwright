@@ -25,6 +25,9 @@ def init():
             id integer primary key, kind text, title text, status text, started real, ended real, log text default '');
         create table if not exists kv (k text primary key, v text);
         """)
+        cols = [r[1] for r in c.execute("pragma table_info(jobs)")]
+        if "progress" not in cols:
+            c.execute("alter table jobs add column progress real")
 
 
 def upsert_finding(check, key, title, summary, detail, action, safe=False):
@@ -89,6 +92,11 @@ def job_log(jid, line):
         c.execute("update jobs set log = log || ? where id=?", (f"[{stamp}] {line}\n", jid))
 
 
+def job_progress(jid, pct):
+    with _lock, _con() as c:
+        c.execute("update jobs set progress=? where id=?", (round(max(0.0, min(100.0, pct)), 1), jid))
+
+
 def end_job(jid, status):
     with _lock, _con() as c:
         c.execute("update jobs set status=?, ended=? where id=?", (status, time.time(), jid))
@@ -96,7 +104,7 @@ def end_job(jid, status):
 
 def jobs(limit=50):
     with _con() as c:
-        return [dict(r) for r in c.execute("select id, kind, title, status, started, ended from jobs order by id desc limit ?", (limit,))]
+        return [dict(r) for r in c.execute("select id, kind, title, status, started, ended, progress from jobs order by id desc limit ?", (limit,))]
 
 
 def job(jid):
