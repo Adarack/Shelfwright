@@ -31,7 +31,7 @@ class Context:
         lib = config.ABS_LIBRARY_ID
         self.items = [dict(r) for r in db.execute(
             "select li.id, li.relPath, li.path, li.isMissing, li.createdAt, b.id bookId, b.title, b.subtitle, b.publisher, b.asin, b.isbn, "
-            "b.tags, b.narrators, b.audioFiles, b.duration from libraryItems li join books b on b.id = li.mediaId where li.libraryId = ?", (lib,))]
+            "b.tags, b.narrators, b.audioFiles, b.duration, b.chapters from libraryItems li join books b on b.id = li.mediaId where li.libraryId = ?", (lib,))]
         self.authors = collections.defaultdict(list)
         for r in db.execute("select ba.bookId, a.id, a.name from bookAuthors ba join authors a on a.id = ba.authorId order by ba.createdAt, ba.rowid"):
             self.authors[r["bookId"]].append({"id": r["id"], "name": r["name"]})
@@ -41,6 +41,7 @@ class Context:
         self.progress = {r["mediaItemId"] for r in db.execute("select distinct mediaItemId from mediaProgresses")}
         for it in self.items:
             it["all_files"] = json.loads(it["audioFiles"] or "[]")
+            it["chapters_list"] = json.loads(it["chapters"] or "[]")
             it["files"] = [a for a in it["all_files"] if not a.get("exclude")]
             it["tags_list"] = json.loads(it["tags"] or "[]")
             it["authors"] = self.authors.get(it["bookId"], [])
@@ -228,6 +229,53 @@ def foreign_files(it):
     return [f for f in it["all_files"] if not f["metadata"]["path"].startswith((it["path"] or "") + "/")]
 
 
+def bad_chapters(it):
+    """Chapters that can't be right: ending before they start, starting after the audio ends, or ending well past it.
+    ABS's encoder (ffmpeg) fails on them, and players jump around."""
+    dur = it["duration"] or sum(f.get("duration") or 0 for f in it["files"])
+    return [c for c in it["chapters_list"] if chapter_broken(c, dur)]
+
+
+def chapter_broken(c, dur):
+    # a last chapter a few seconds past the end is common rounding and harmless
+    return c["end"] <= c["start"] or c["start"] >= dur or c["end"] > dur + max(30, dur * 0.01)
+
+
+def unreadable_files(it):
+    """Audio files in the book's folder that ABS doesn't list: usually damaged files its scanner couldn't read."""
+    folder = abs_to_local(it["path"]) if it["path"] else None
+    if not folder or not os.path.isdir(folder):
+        return []
+    known = {os.path.basename(f["metadata"]["path"]) for f in it["all_files"]}
+    return sorted(n for n in os.listdir(folder) if os.path.splitext(n)[1].lower() in AUDIO_EXT and n not in known)
+
+
+def check_chapters(ctx):
+    for it in ctx.items:
+        if it["isMissing"] or not it["files"] or not in_library(it) or foreign_files(it):
+            continue
+        bad = bad_chapters(it)
+        if bad:
+            dur = it["duration"] or 0
+            over = max(c["end"] for c in it["chapters_list"]) - dur
+            why = (f"; they run {over / 60:.0f} min past the end of the audio: the audio may be incomplete (check it before resetting) "
+                   "or the chapters are for another edition") if over > max(60, dur * 0.02) else ""
+            yield F("abs_chapters", it["id"], it["title"],
+                    f"{len(bad)} of {len(it['chapters_list'])} chapters don't fit the audio ({dur / 3600:.2f} h){why}",
+                    {"path": it["relPath"], "examples": [{"title": c["title"], "start": round(c["start"]), "end": round(c["end"])} for c in bad[:8]]},
+                    {"type": "choose", "options": [{"label": "Reset chapters from the audio", "action": {"type": "abs_reset_chapters", "item": it["id"]}}]})
+
+
+def check_unreadable(ctx):
+    for it in ctx.items:
+        if it["isMissing"] or not in_library(it):
+            continue
+        bad = unreadable_files(it)
+        if bad:
+            yield F("abs_unreadable", it["id"], it["title"], f"ABS can't read {len(bad)} audio file(s): {', '.join(bad[:3])}"
+                    + (" …" if len(bad) > 3 else "") + " — replace them (re-download the book)", {"path": it["relPath"], "files": bad})
+
+
 def check_foreign_tracks(ctx):
     for it in ctx.items:
         bad = foreign_files(it) if in_library(it) else []
@@ -259,8 +307,8 @@ def check_conversion(ctx):
     """Books not in a single m4b. Audio an m4b can hold as it is gets joined losslessly; anything else needs a
     re-encode and is only proposed when CONVERT_REENCODE is on."""
     for it in ctx.items:
-        if it["isMissing"] or not it["files"] or not in_library(it) or foreign_files(it):
-            continue
+        if it["isMissing"] or not it["files"] or not in_library(it) or foreign_files(it) or bad_chapters(it) or unreadable_files(it):
+            continue   # these get fixed first (their own findings); converting them would fail or drop audio
         exts = {os.path.splitext(f["metadata"]["path"])[1].lower() for f in it["files"]}
         if len(it["files"]) == 1 and exts == {".m4b"}:
             continue

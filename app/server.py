@@ -18,6 +18,8 @@ CHECKS = {
     "abs_missing": ("Missing in ABS", "ABS lists books whose files are gone"),
     "abs_double": ("Double ABS entries", "Two ABS entries for one folder"),
     "abs_foreign": ("Wrong audio file", "ABS lists a file from another folder in this book"),
+    "abs_chapters": ("Chapters don't fit", "Chapters past the end of the audio or ending before they start"),
+    "abs_unreadable": ("Unreadable audio", "Audio files in the folder that ABS can't read (damaged)"),
     "convert": ("Convert to M4B", "Lossless join for AAC books; MP3/Ogg only when re-encoding is on"),
     "backup": ("Conversion backups", "Original tracks ABS kept after converting"),
     "empty_dirs": ("Empty folders", "Leftover empty folders"),

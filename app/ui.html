@@ -37,7 +37,7 @@ const $=s=>document.querySelector(s), esc=s=>String(s??"").replace(/[&<>"]/g,c=>
 let S={check:null,status:"open",sum:null};
 const api=(p,b)=>fetch(p,b?{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(b)}:{}).then(r=>r.json());
 const ago=t=>{if(!t)return"never";const m=Math.round((Date.now()/1e3-t)/60);return m<60?m+" min ago":m<2880?Math.round(m/60)+" h ago":Math.round(m/1440)+" days ago"};
-const GROUPS=[["Audiobookshelf",["drama","title","author_variant","author_initials","series_variant","duplicate","abs_missing","abs_double","abs_foreign"]],
+const GROUPS=[["Audiobookshelf",["drama","title","author_variant","author_initials","series_variant","duplicate","abs_missing","abs_double","abs_foreign","abs_chapters","abs_unreadable"]],
  ["Files",["tag_sync","naming","collision","convert","backup","empty_dirs"]],["Chaptarr",["ch_stale","ch_unlinked","ch_author_path","ch_wrong_author","ch_wrong_title"]]];
 async function load(){
   const s=S.sum=await api("/api/summary");

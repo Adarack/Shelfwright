@@ -436,6 +436,37 @@ def _join_lossless(it, files, log):
     return paths, target
 
 
+def _chapters_from_audio(media):
+    """Chapters that fit the audio: each file's embedded chapters (offset by the files before it), or one chapter per
+    file when a file has none."""
+    files = sorted((f for f in media["audioFiles"] if not f.get("exclude")), key=lambda f: f.get("index") or 0)
+    out, t = [], 0.0
+    for i, f in enumerate(files):
+        emb = _ffprobe_chapters(abs_to_local(f["metadata"]["path"]))
+        dur = f.get("duration") or 0
+        if emb:
+            out += [{"start": t + c["start"], "end": t + min(c["end"], dur), "title": c["title"]} for c in emb if c["end"] > c["start"]]
+        else:
+            title = ((f.get("metaTags") or {}).get("tagTitle") or "").strip()
+            out.append({"start": t, "end": t + dur, "title": title if len(files) > 1 and title and title != media["metadata"]["title"] else f"Chapter {i + 1}"})
+        t += dur
+    if not out:
+        out = [{"start": 0, "end": media["duration"], "title": media["metadata"]["title"]}]
+    return [{"id": i, **c} for i, c in enumerate(out)]
+
+
+def abs_reset_chapters(a, log):
+    """Replace an item's chapters with ones that fit its audio. The old list is kept in the logs."""
+    abs_ = ABS()
+    it = abs_.item(a["item"]); m = it["media"]
+    path = os.path.join(LOGS, f"chapters-before-{a['item']}-{stamp()}.json")
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(m.get("chapters") or [], f)
+    ch = _chapters_from_audio(m)
+    abs_.call("POST", f"/api/items/{a['item']}/chapters", {"chapters": ch})
+    log(f"{m['metadata']['title']}: {len(m.get('chapters') or [])} chapters -> {len(ch)} from the audio (old list: {path})")
+
+
 def abs_readd(a, log):
     """Remove an ABS item from the database only (never its files) and let a library scan add the folder again as a
     new item: clears stale entries a rescan can't. Metadata comes back from the folder's metadata.json; collection
@@ -476,14 +507,8 @@ def abs_readd(a, log):
     # metadata.json still holds the old (merged) chapter list: take the chapters from the audio itself
     m = new["media"]
     if any(c["end"] > m["duration"] + 1 for c in m.get("chapters") or []):
-        if len(m["audioFiles"]) == 1:
-            emb = _ffprobe_chapters(abs_to_local(m["audioFiles"][0]["metadata"]["path"]))
-        else:
-            emb, t = [], 0.0
-            for i, f in enumerate(m["audioFiles"]):
-                emb.append({"start": t, "end": t + f["duration"], "title": f"Chapter {i + 1}"}); t += f["duration"]
-        ch = emb or [{"start": 0, "end": m["duration"], "title": m["metadata"]["title"]}]
-        abs_.call("POST", f"/api/items/{new_id}/chapters", {"chapters": [{"id": i, **c} for i, c in enumerate(ch)]})
+        ch = _chapters_from_audio(m)
+        abs_.call("POST", f"/api/items/{new_id}/chapters", {"chapters": ch})
         log(f"chapters from metadata.json ran past the end; set {len(ch)} chapter(s) from the audio")
         new = abs_.item(new_id)
     log(f"re-added as {new_id}: {len(new['media']['audioFiles'])} audio file(s), {round(new['media']['duration'] / 60)} min, "
@@ -502,6 +527,14 @@ def convert(a, log):
     stray = [f["metadata"]["path"] for f in it["media"]["audioFiles"] if not f["metadata"]["path"].startswith(it["path"] + "/")]
     if stray:
         raise RuntimeError(f"ABS lists audio from another folder in this book ({stray}); fix that first (ABS: wrong audio file)")
+    m = it["media"]
+    if any(checks.chapter_broken(c, m["duration"] or 0) for c in m.get("chapters") or []):
+        raise RuntimeError("the chapters don't fit the audio and ABS's encoder fails on them; fix that first (ABS: chapters don't fit)")
+    folder_local = abs_to_local(it["path"])
+    known = {os.path.basename(f["metadata"]["path"]) for f in m["audioFiles"]}
+    unread = [n for n in os.listdir(folder_local) if os.path.splitext(n)[1].lower() in checks.AUDIO_EXT and n not in known]
+    if unread:
+        raise RuntimeError(f"ABS can't read {unread}; converting would drop that audio. Replace the file(s) first")
     title = it["media"]["metadata"]["title"]
     codecs = {(f.get("codec") or "?").lower() for f in files}
     mode = a.get("mode") or ("copy" if len(codecs) == 1 and codecs <= checks.COPY_CODECS else "reencode")
@@ -537,6 +570,11 @@ def convert(a, log):
                 if mine and mine[0].get("isFailed"):
                     raise RuntimeError("ABS encode failed: " + str(mine[0].get("error")))
                 break
+        # ABS drops a failed task from its list, so check the result: the m4b must be in the book's folder
+        target = os.path.join(folder, os.path.basename(folder) + ".m4b")
+        time.sleep(3)
+        if not os.path.exists(target):
+            raise RuntimeError("ABS's encoder stopped without producing the m4b (its log has the reason); the original files are untouched")
         log("ABS finished encoding")
         _progress(log, 92)
         new_path = None
