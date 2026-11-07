@@ -1,5 +1,5 @@
 """Findings (issues + proposed fix) and jobs, kept in a small sqlite database in /data."""
-import json, os, sqlite3, threading, time
+import contextlib, json, os, sqlite3, threading, time
 
 import config
 
@@ -7,10 +7,17 @@ _lock = threading.Lock()
 _DB = os.path.join(config.DATA, "shelfwright.db")
 
 
+@contextlib.contextmanager
 def _con():
+    """A connection for one block: committed (or rolled back) and closed at the end. sqlite3's own context manager
+    only commits, which leaked a connection per call."""
     con = sqlite3.connect(_DB, timeout=30)
     con.row_factory = sqlite3.Row
-    return con
+    try:
+        with con:
+            yield con
+    finally:
+        con.close()
 
 
 def init():

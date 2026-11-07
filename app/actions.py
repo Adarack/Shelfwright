@@ -528,6 +528,15 @@ def convert(a, log):
     if stray:
         raise RuntimeError(f"ABS lists audio from another folder in this book ({stray}); fix that first (ABS: wrong audio file)")
     m = it["media"]
+    if len(files) == 1 and files[0]["metadata"]["path"].lower().endswith(".m4b"):
+        # already one m4b: an earlier run was interrupted after ABS finished (ABS keeps encoding on its own).
+        # Never encode it again; just do the steps that didn't run, using the originals ABS put in its cache.
+        folder_local = abs_to_local(it["path"])
+        cache = os.path.join(config.ABS_METADATA_DIR, "cache", "items", a["item"])
+        olds = sorted(n for n in os.listdir(cache) if os.path.splitext(n)[1].lower() in checks.AUDIO_EXT) if os.path.isdir(cache) else []
+        log(f"{m['metadata']['title']} is already one m4b (an interrupted run that ABS finished); finishing the remaining steps")
+        finish_convert(a["item"], [os.path.join(folder_local, n) for n in olds], abs_to_local(files[0]["metadata"]["path"]), log)
+        return
     if any(checks.chapter_broken(c, m["duration"] or 0) for c in m.get("chapters") or []):
         raise RuntimeError("the chapters don't fit the audio and ABS's encoder fails on them; fix that first (ABS: chapters don't fit)")
     folder_local = abs_to_local(it["path"])

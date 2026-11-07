@@ -152,10 +152,14 @@ def _scheduler():
 
 
 def start():
-    # fixes interrupted by a restart go back to waiting for approval
+    # fixes interrupted by a restart go back to waiting for approval; their jobs are closed
     for f in store.findings():
         if f["status"] in ("queued", "running"):
             store.set_status(f["id"], "open", "interrupted by a restart")
+    for j in store.jobs(1000):
+        if j["status"] == "running":
+            store.job_log(j["id"], "interrupted by a restart of Shelfwright")
+            store.end_job(j["id"], "interrupted")
     threading.Thread(target=_worker, args=(_work,), daemon=True).start()
     for _ in range(max(1, config.CONVERT_CONCURRENCY)):
         threading.Thread(target=_worker, args=(_convert,), daemon=True).start()
